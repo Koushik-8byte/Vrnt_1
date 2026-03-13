@@ -1,5 +1,6 @@
-// Toggle password visibility
-document.getElementById('togglePassword').addEventListener('click', function() {
+// ── TOGGLE PASSWORD VISIBILITY ────────────────────────
+document.getElementById('togglePassword')
+        .addEventListener('click', function () {
     const passwordInput = document.getElementById('pwd');
     const icon = this.querySelector('i');
 
@@ -14,70 +15,111 @@ document.getElementById('togglePassword').addEventListener('click', function() {
     }
 });
 
-// Form validation and submission
-document.getElementById('loginForm').addEventListener('submit', function(e) {
+// ── LOGIN FORM SUBMIT ─────────────────────────────────
+document.getElementById('loginForm')
+        .addEventListener('submit', async function (e) {
+
+    // ✅ MUST be first line — stops browser from submitting form itself
     e.preventDefault();
 
     const username = document.getElementById('uname').value.trim();
     const password = document.getElementById('pwd').value;
-    const rememberMe = document.getElementById('rememberMe').checked;
 
-    // Basic validation
+    // ── Validation ────────────────────────────────────
     if (!username) {
-        alert('Please enter your username or email');
+        showError('Please enter your username');
         return;
     }
-
     if (password.length < 6) {
-        alert('Password must be at least 6 characters long');
+        showError('Password must be at least 6 characters');
         return;
     }
 
-    // Simulate login process
+    // ── Show loading ──────────────────────────────────
     const loginBtn = document.querySelector('.btn-login');
     const originalText = loginBtn.innerHTML;
-
-    loginBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Signing in...';
+    loginBtn.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2"
+              role="status" aria-hidden="true"></span>
+        Signing in...`;
     loginBtn.disabled = true;
 
-    // Simulate API call
-    setTimeout(() => {
-        alert(`Login successful! Welcome, ${username}`);
+    try {
+        // ── Call Spring Boot API ──────────────────────
+        const response = await fetch(
+            'http://localhost:8080/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // ── Save to localStorage ──────────────────
+            localStorage.setItem('token',    result.data.token);
+            localStorage.setItem('username', result.data.username);
+            localStorage.setItem('role',     result.data.role);
+            localStorage.setItem('fullName', result.data.fullName);
+
+            showSuccess('Welcome back, ' + result.data.fullName + '!');
+
+            // ── Redirect based on role ────────────────
+            setTimeout(() => {
+                if (result.data.role === 'teacher') {
+                    window.location.href = 'search.html';
+                } else if (result.data.role === 'student') {
+                    window.location.href = 'search.html';
+                } else {
+                    window.location.href = 'search.html';
+                }
+            }, 1000);
+
+        } else {
+            showError(result.message);
+            loginBtn.innerHTML = originalText;
+            loginBtn.disabled = false;
+        }
+
+    } catch (error) {
+        showError('Cannot connect to server. ' +
+                  'Make sure Spring Boot is running on port 8080.');
         loginBtn.innerHTML = originalText;
         loginBtn.disabled = false;
-
-        // In a real application, you would redirect or update the UI here
-        // window.location.href = 'dashboard.html';
-    }, 1500);
+    }
 });
 
-// Google login button handler
-document.getElementById('googleLogin').addEventListener('click', function() {
-    const googleBtn = this;
-    const originalText = googleBtn.innerHTML;
-
-    googleBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Connecting to Google...';
-    googleBtn.disabled = true;
-
-    // Simulate Google OAuth process
-    setTimeout(() => {
-        alert('Redirecting to Google for authentication...');
-        googleBtn.innerHTML = originalText;
-        googleBtn.disabled = false;
-
-        // In a real application, you would redirect to Google OAuth here
-        // window.location.href = 'https://accounts.google.com/o/oauth2/auth?...';
-    }, 1000);
-});
-
-// Add focus effect to inputs
-const inputs = document.querySelectorAll('.form-control');
-inputs.forEach(input => {
-    input.addEventListener('focus', function() {
+// ── INPUT FOCUS EFFECTS ───────────────────────────────
+document.querySelectorAll('.form-control').forEach(input => {
+    input.addEventListener('focus', function () {
         this.parentElement.parentElement.classList.add('focused');
     });
-
-    input.addEventListener('blur', function() {
+    input.addEventListener('blur', function () {
         this.parentElement.parentElement.classList.remove('focused');
     });
 });
+
+// ── HELPERS ───────────────────────────────────────────
+function showError(message) {
+    removeAlerts();
+    const div = document.createElement('div');
+    div.className = 'alert alert-danger mt-3';
+    div.innerHTML = `❌ ${message}`;
+    document.getElementById('loginForm').prepend(div);
+    setTimeout(() => div.remove(), 4000);
+}
+
+function showSuccess(message) {
+    removeAlerts();
+    const div = document.createElement('div');
+    div.className = 'alert alert-success mt-3';
+    div.innerHTML = `✅ ${message}`;
+    document.getElementById('loginForm').prepend(div);
+}
+
+function removeAlerts() {
+    document.querySelectorAll('.alert').forEach(a => a.remove());
+}

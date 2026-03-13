@@ -1,376 +1,303 @@
-// Sample data for demonstration
-const sampleData = [
-    {
-        id: 1,
-        name: "Sathya Narayanan",
-        username: "Sathya",
-        email: "sathya123@gmail.com",
-        role: "student",
-        department: "B.Sc CS",
-        gender: "Male",
-        applicationNo: "APP-1023",
-        fullName: "Sathya Narayanan",
-        registrationDate: "2024-01-15",
-        status: "Active"
-    },
-    {
-        id: 2,
-        name: "Priya Sharma",
-        username: "PriyaS",
-        email: "priya.sharma@example.com",
-        role: "teacher",
-        department: "B.E CSE",
-        gender: "Female",
-        applicationNo: "APP-1024",
-        fullName: "Priya Sharma",
-        registrationDate: "2024-01-10",
-        status: "Active"
-    },
-    {
-        id: 3,
-        name: "Rahul Verma",
-        username: "RahulV",
-        email: "rahul.verma@example.com",
-        role: "student",
-        department: "B.E ECE",
-        gender: "Male",
-        applicationNo: "APP-1025",
-        fullName: "Rahul Verma",
-        registrationDate: "2024-01-05",
-        status: "Pending"
-    },
-    {
-        id: 4,
-        name: "Anjali Patel",
-        username: "AnjaliP",
-        email: "anjali.patel@example.com",
-        role: "student",
-        department: "BCA",
-        gender: "Female",
-        applicationNo: "APP-1026",
-        fullName: "Anjali Patel",
-        registrationDate: "2024-01-20",
-        status: "Active"
-    },
-    {
-        id: 5,
-        name: "Rajesh Kumar",
-        username: "RajeshK",
-        email: "rajesh.kumar@example.com",
-        role: "teacher",
-        department: "B.Sc CS",
-        gender: "Male",
-        applicationNo: "APP-1027",
-        fullName: "Rajesh Kumar",
-        registrationDate: "2023-12-15",
-        status: "Active"
-    }
-];
+// ── CONFIG ────────────────────────────────────────────
+const API_BASE   = 'http://localhost:8080';
 
-// Current state
-let currentPage = 1;
-const resultsPerPage = 3;
+// ── STATE ─────────────────────────────────────────────
+let currentPage    = 1;
+const PER_PAGE     = 10;
 let currentResults = [];
-let expandedRow = null;
-let sessionStartTime = new Date();
+let expandedRow    = null;
+let sessionStart   = new Date();
 
-// DOM elements
-const searchForm = document.getElementById('searchForm');
-const resultsBody = document.getElementById('resultsBody');
-const emptyState = document.getElementById('emptyState');
-const resultCount = document.getElementById('resultCount');
-const paginationContainer = document.getElementById('paginationContainer');
-const pagination = document.getElementById('pagination');
-const pageInfo = document.getElementById('pageInfo');
-const logoutModal = document.getElementById('logoutModal');
-const confirmLogoutBtn = document.getElementById('confirmLogout');
-const userNameDisplay = document.getElementById('userNameDisplay');
-const currentUserName = document.getElementById('currentUserName');
-const currentUserEmail = document.getElementById('currentUserEmail');
-const sessionTime = document.getElementById('sessionTime');
+// ── ON PAGE LOAD ──────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
 
-// Initialize
-document.addEventListener('DOMContentLoaded', function() {
-    // Set user information (in a real app, this would come from auth system)
-    const currentUser = {
-        name: "Admin User",
-        email: "admin@example.com",
-        role: "Administrator"
-    };
+    // ── Check login ───────────────────────────────────
+    const role     = localStorage.getItem('role');
+    const username = localStorage.getItem('username');
+    const fullName = localStorage.getItem('fullName');
 
-    userNameDisplay.textContent = currentUser.name;
-    currentUserName.textContent = currentUser.name;
-    currentUserEmail.textContent = currentUser.email;
+    if (!role || !username) {
+        window.location.href = 'login.html';
+        return;
+    }
 
-    // Update session time
+    // ── Show logged-in user info ──────────────────────
+    document.getElementById('userNameDisplay').textContent =
+        fullName || username;
+    document.getElementById('currentUserEmail').textContent =
+        username;
+
+    // ── Session time ──────────────────────────────────
     updateSessionTime();
-    setInterval(updateSessionTime, 60000); // Update every minute
+    setInterval(updateSessionTime, 60000);
 
-    // Perform initial search with no filters
-    performSearch();
+    // ── Show teacher-only buttons ─────────────────────
+    // Export buttons are visible ONLY to teachers
+    applyRoleVisibility(role);
 
-    // Add event listener for form submission
-    searchForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        currentPage = 1;
-        performSearch();
-    });
+    // ── Load all users on page open ───────────────────
+    fetchUsers();
 
-    // Logout confirmation
-    confirmLogoutBtn.addEventListener('click', function() {
-        logoutUser();
-    });
-
-    // User profile button
-    document.getElementById('userProfileBtn').addEventListener('click', function() {
-        showUserProfile();
-    });
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', function(e) {
-        // Ctrl+L or Cmd+L for logout
-        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+    // ── Search form submit ────────────────────────────
+    document.getElementById('searchForm')
+        .addEventListener('submit', function (e) {
             e.preventDefault();
-            const modal = new bootstrap.Modal(logoutModal);
-            modal.show();
-        }
+            currentPage = 1;
+            fetchUsers();
+        });
 
-        // Escape to close details
-        if (e.key === 'Escape' && expandedRow) {
-            toggleDetails(expandedRow);
-        }
-    });
+    // ── Logout confirm ────────────────────────────────
+    document.getElementById('confirmLogout')
+        .addEventListener('click', logoutUser);
+
+    // ── User profile button ───────────────────────────
+    document.getElementById('userProfileBtn')
+        .addEventListener('click', function () {
+            showNotification(
+                'Logged in as: ' + (fullName || username) +
+                ' (' + role + ')', 'info');
+        });
 });
 
-// Update session time display
-function updateSessionTime() {
-    const now = new Date();
-    const diffMs = now - sessionStartTime;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
+// ── ROLE VISIBILITY ───────────────────────────────────
+// Hide export buttons for students — teachers only
+function applyRoleVisibility(role) {
+    const teacherOnlyEls =
+        document.querySelectorAll('.teacher-only');
 
-    if (diffDays > 0) {
-        sessionTime.textContent = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    } else if (diffHours > 0) {
-        sessionTime.textContent = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    } else if (diffMins > 0) {
-        sessionTime.textContent = `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    } else {
-        sessionTime.textContent = 'Just now';
+    teacherOnlyEls.forEach(el => {
+        el.style.display =
+            role === 'teacher' ? '' : 'none';
+    });
+}
+
+// ── FETCH USERS FROM SPRING BOOT ──────────────────────
+async function fetchUsers() {
+    const roleFilter     = document.getElementById('role').value;
+    const usernameFilter = document.getElementById('uname').value
+        .trim().toLowerCase();
+
+    showLoading(true);
+
+    try {
+        const response = await fetch(
+            `${API_BASE}/api/auth/users`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+        if (!response.ok) {
+            throw new Error('Server error: ' + response.status);
+        }
+
+        const result = await response.json();
+        let users = Array.isArray(result) ? result : result.data || [];
+
+        // ── Filter client-side ────────────────────────
+        if (roleFilter) {
+            users = users.filter(u =>
+                u.role && u.role.toLowerCase() === roleFilter);
+        }
+        if (usernameFilter) {
+            users = users.filter(u =>
+                (u.username && u.username.toLowerCase()
+                    .includes(usernameFilter)) ||
+                (u.fullName && u.fullName.toLowerCase()
+                    .includes(usernameFilter))
+            );
+        }
+
+        currentResults = users;
+        currentPage    = 1;
+        renderTable();
+
+    } catch (error) {
+        console.error('Fetch error:', error);
+        showNotification(
+            'Cannot connect to server. ' +
+            'Make sure Spring Boot is running on port 8080.',
+            'danger');
+        currentResults = [];
+        renderTable();
+    } finally {
+        showLoading(false);
     }
 }
 
-// Perform search based on form values
-function performSearch() {
-    const role = document.getElementById('role').value;
-    const username = document.getElementById('uname').value.toLowerCase().trim();
-
-    // Filter sample data based on search criteria
-    currentResults = sampleData.filter(item => {
-        let matches = true;
-
-        // Filter by role
-        if (role && item.role !== role) {
-            matches = false;
-        }
-
-        // Filter by username
-        if (username && !item.username.toLowerCase().includes(username) &&
-            !item.name.toLowerCase().includes(username)) {
-            matches = false;
-        }
-
-        return matches;
-    });
-
-    // Update UI
-    updateResults();
+// ── VIEW ALL (clears filters, loads every user) ───────
+function viewAll() {
+    document.getElementById('role').value  = '';
+    document.getElementById('uname').value = '';
+    currentPage = 1;
+    fetchUsers();
+    showNotification('Showing all registered users', 'info');
 }
 
-// Update results table and pagination
-function updateResults() {
-    // Clear previous results
-    resultsBody.innerHTML = '';
+// ── RENDER TABLE ──────────────────────────────────────
+function renderTable() {
+    const tbody      = document.getElementById('resultsBody');
+    const emptyState = document.getElementById('emptyState');
+    const pagination = document.getElementById('pagination');
+    const resultCount       = document.getElementById('resultCount');
+    const paginationContainer =
+        document.getElementById('paginationContainer');
+    const pageInfo   = document.getElementById('pageInfo');
+
+    tbody.innerHTML      = '';
     pagination.innerHTML = '';
 
-    // Calculate pagination
-    const totalResults = currentResults.length;
-    const totalPages = Math.ceil(totalResults / resultsPerPage);
-    const startIndex = (currentPage - 1) * resultsPerPage;
-    const endIndex = Math.min(startIndex + resultsPerPage, totalResults);
-    const pageResults = currentResults.slice(startIndex, endIndex);
+    const total      = currentResults.length;
+    const totalPages = Math.ceil(total / PER_PAGE);
+    const startIdx   = (currentPage - 1) * PER_PAGE;
+    const endIdx     = Math.min(startIdx + PER_PAGE, total);
+    const pageData   = currentResults.slice(startIdx, endIdx);
 
-    // Update result count
-    resultCount.textContent = `${totalResults} result${totalResults !== 1 ? 's' : ''} found`;
+    resultCount.textContent =
+        `${total} result${total !== 1 ? 's' : ''} found`;
 
-    // Show/hide empty state
-    if (totalResults === 0) {
-        emptyState.style.display = 'block';
+    if (total === 0) {
+        emptyState.style.display        = 'block';
         paginationContainer.style.display = 'none';
         return;
-    } else {
-        emptyState.style.display = 'none';
-        paginationContainer.style.display = 'flex';
     }
 
-    // Update page info
-    pageInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${totalResults}`;
+    emptyState.style.display        = 'none';
+    paginationContainer.style.display = 'flex';
+    pageInfo.textContent =
+        `Showing ${startIdx + 1}–${endIdx} of ${total}`;
 
-    // Generate table rows
-    pageResults.forEach(item => {
+    // ── Build rows ────────────────────────────────────
+    pageData.forEach(user => {
+        const roleClass = user.role === 'student'
+            ? 'status-student' : 'status-teacher';
+        const roleLabel = user.role
+            ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+            : '-';
+
+        // Main row
         const row = document.createElement('tr');
-        row.className = 'result-row';
-        row.dataset.id = item.id;
-
-        // Status badge based on role
-        const statusClass = item.role === 'student' ? 'status-student' : 'status-teacher';
-        const statusText = item.role.charAt(0).toUpperCase() + item.role.slice(1);
-
+        row.dataset.id = user.id;
         row.innerHTML = `
-            <td>${item.name}</td>
-            <td>${item.username}</td>
-            <td>${item.email}</td>
-            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-            <td>${item.department}</td>
-            <td>${item.gender}</td>
+            <td>${user.fullName  || '-'}</td>
+            <td>${user.username  || '-'}</td>
+            <td>${user.email     || '-'}</td>
+            <td><span class="status-badge ${roleClass}">${roleLabel}</span></td>
+            <td>${user.department || '-'}</td>
+            <td>${user.gender    || '-'}</td>
             <td>
-                <button class="btn-view" onclick="toggleDetails(${item.id})" id="viewBtn-${item.id}">
+                <button class="btn-view"
+                        id="viewBtn-${user.id}"
+                        onclick="toggleDetails(${user.id})">
                     <i class="bi bi-eye"></i> View
                 </button>
-            </td>
-        `;
+            </td>`;
+        tbody.appendChild(row);
 
-        resultsBody.appendChild(row);
-
-        // Create details row (initially hidden)
+        // Details row (hidden by default)
         const detailsRow = document.createElement('tr');
-        detailsRow.className = 'details-row';
-        detailsRow.id = `details-${item.id}`;
+        detailsRow.id    = `details-${user.id}`;
         detailsRow.style.display = 'none';
-
         detailsRow.innerHTML = `
             <td colspan="7">
                 <div class="details-container">
                     <div class="details-grid">
                         <div class="detail-item">
+                            <div class="detail-label">ID</div>
+                            <div class="detail-value">${user.id}</div>
+                        </div>
+                        <div class="detail-item">
                             <div class="detail-label">Full Name</div>
-                            <div class="detail-value">${item.fullName}</div>
+                            <div class="detail-value">${user.fullName || '-'}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Username</div>
-                            <div class="detail-value">${item.username}</div>
+                            <div class="detail-value">${user.username || '-'}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Email</div>
-                            <div class="detail-value">${item.email}</div>
+                            <div class="detail-value">${user.email || '-'}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Role</div>
-                            <div class="detail-value">${statusText}</div>
+                            <div class="detail-value">${roleLabel}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Department</div>
-                            <div class="detail-value">${item.department}</div>
+                            <div class="detail-value">${user.department || '-'}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Gender</div>
-                            <div class="detail-value">${item.gender}</div>
+                            <div class="detail-value">${user.gender || '-'}</div>
                         </div>
                         <div class="detail-item">
-                            <div class="detail-label">Application No.</div>
-                            <div class="detail-value">${item.applicationNo}</div>
+                            <div class="detail-label">Registered On</div>
+                            <div class="detail-value">
+                                ${user.createdAt
+            ? new Date(user.createdAt)
+                .toLocaleDateString()
+            : '-'}
+                            </div>
                         </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Registration Date</div>
-                            <div class="detail-value">${item.registrationDate}</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">${item.status}</div>
-                        </div>
-                    </div>
-                    <div class="mt-3">
-                        <button class="btn btn-sm btn-outline-primary me-2">
-                            <i class="bi bi-pencil"></i> Edit
-                        </button>
-                        <button class="btn btn-sm btn-outline-success me-2">
-                            <i class="bi bi-check-circle"></i> Approve
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger">
-                            <i class="bi bi-x-circle"></i> Reject
-                        </button>
                     </div>
                 </div>
-            </td>
-        `;
-
-        resultsBody.appendChild(detailsRow);
+            </td>`;
+        tbody.appendChild(detailsRow);
     });
 
-    // Generate pagination
+    // ── Pagination ────────────────────────────────────
     if (totalPages > 1) {
-        // Previous button
-        const prevLi = document.createElement('li');
-        prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
-        prevLi.innerHTML = `
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1})" aria-label="Previous">
-                <span aria-hidden="true">&laquo;</span>
-            </a>
-        `;
-        pagination.appendChild(prevLi);
+        const prev = document.createElement('li');
+        prev.className =
+            `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+        prev.innerHTML =
+            `<a class="page-link" href="#"
+                onclick="changePage(${currentPage - 1})">
+                &laquo;</a>`;
+        pagination.appendChild(prev);
 
-        // Page numbers
         for (let i = 1; i <= totalPages; i++) {
             const li = document.createElement('li');
-            li.className = `page-item ${currentPage === i ? 'active' : ''}`;
-            li.innerHTML = `<a class="page-link" href="#" onclick="changePage(${i})">${i}</a>`;
+            li.className =
+                `page-item ${currentPage === i ? 'active' : ''}`;
+            li.innerHTML =
+                `<a class="page-link" href="#"
+                    onclick="changePage(${i})">${i}</a>`;
             pagination.appendChild(li);
         }
 
-        // Next button
-        const nextLi = document.createElement('li');
-        nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
-        nextLi.innerHTML = `
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1})" aria-label="Next">
-                <span aria-hidden="true">&raquo;</span>
-            </a>
-        `;
-        pagination.appendChild(nextLi);
+        const next = document.createElement('li');
+        next.className =
+            `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+        next.innerHTML =
+            `<a class="page-link" href="#"
+                onclick="changePage(${currentPage + 1})">
+                &raquo;</a>`;
+        pagination.appendChild(next);
     }
 }
 
-// Toggle details view
+// ── TOGGLE DETAILS ROW ────────────────────────────────
 function toggleDetails(id) {
     const detailsRow = document.getElementById(`details-${id}`);
-    const viewBtn = document.getElementById(`viewBtn-${id}`);
+    const viewBtn    = document.getElementById(`viewBtn-${id}`);
 
-    // Close previously expanded row
     if (expandedRow && expandedRow !== id) {
-        const prevDetailsRow = document.getElementById(`details-${expandedRow}`);
-        const prevViewBtn = document.getElementById(`viewBtn-${expandedRow}`);
-
-        if (prevDetailsRow) {
-            prevDetailsRow.style.display = 'none';
-        }
-
-        if (prevViewBtn) {
-            prevViewBtn.innerHTML = '<i class="bi bi-eye"></i> View';
-            prevViewBtn.classList.remove('active');
+        const prev    = document.getElementById(`details-${expandedRow}`);
+        const prevBtn = document.getElementById(`viewBtn-${expandedRow}`);
+        if (prev)    prev.style.display = 'none';
+        if (prevBtn) {
+            prevBtn.innerHTML = '<i class="bi bi-eye"></i> View';
+            prevBtn.classList.remove('active');
         }
     }
 
-    // Toggle current row
     if (detailsRow.style.display === 'none') {
         detailsRow.style.display = '';
         viewBtn.innerHTML = '<i class="bi bi-eye-slash"></i> Hide';
         viewBtn.classList.add('active');
         expandedRow = id;
-
-        // Scroll to details if needed
         detailsRow.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest'
+            behavior: 'smooth', block: 'nearest'
         });
     } else {
         detailsRow.style.display = 'none';
@@ -380,130 +307,163 @@ function toggleDetails(id) {
     }
 }
 
-// Change page
+// ── CHANGE PAGE ───────────────────────────────────────
 function changePage(page) {
-    if (page < 1 || page > Math.ceil(currentResults.length / resultsPerPage)) {
-        return;
-    }
-
+    const totalPages =
+        Math.ceil(currentResults.length / PER_PAGE);
+    if (page < 1 || page > totalPages) return;
     currentPage = page;
-    updateResults();
-
-    // Scroll to top of results
-    document.querySelector('.result-container').scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-    });
+    renderTable();
+    document.querySelector('.result-container')
+        .scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Clear search form
+// ── CLEAR SEARCH ──────────────────────────────────────
 function clearSearch() {
-    document.getElementById('role').value = '';
+    document.getElementById('role').value  = '';
     document.getElementById('uname').value = '';
     currentPage = 1;
-    performSearch();
+    fetchUsers();
     showNotification('Search filters cleared');
 }
 
-// Refresh results
+// ── REFRESH ───────────────────────────────────────────
 function refreshResults() {
-    performSearch();
+    fetchUsers();
     showNotification('Results refreshed');
 }
 
-// Export results to CSV
-function exportToCSV() {
-    if (currentResults.length === 0) {
-        alert('No data to export');
+// ── EXPORT ALL USERS (teacher only) ───────────────────
+async function exportToCSV() {
+    await downloadExcel('all', 'all_users');
+}
+
+// ── EXPORT STUDENTS ONLY (teacher only) ───────────────
+async function exportStudents() {
+    await downloadExcel('students', 'students');
+}
+
+// ── EXPORT TEACHERS ONLY (teacher only) ───────────────
+async function exportTeachers() {
+    await downloadExcel('teachers', 'teachers');
+}
+
+// ── SHARED EXCEL DOWNLOAD HELPER ──────────────────────
+async function downloadExcel(endpoint, fileLabel) {
+    const username = localStorage.getItem('username');
+    const role     = localStorage.getItem('role');
+
+    if (role !== 'teacher') {
+        showNotification(
+            '🚫 Only teachers can export Excel files', 'danger');
         return;
     }
 
-    // Create CSV content
-    const headers = ['Name', 'Username', 'Email', 'Role', 'Department', 'Gender', 'Application No.', 'Status'];
-    const csvRows = [
-        headers.join(','),
-        ...currentResults.map(item => [
-            `"${item.name}"`,
-            `"${item.username}"`,
-            `"${item.email}"`,
-            `"${item.role}"`,
-            `"${item.department}"`,
-            `"${item.gender}"`,
-            `"${item.applicationNo}"`,
-            `"${item.status}"`
-        ].join(','))
-    ];
+    try {
+        showNotification('⏳ Preparing download...', 'info');
 
-    const csvContent = csvRows.join('\n');
+        const response = await fetch(
+            `${API_BASE}/api/admin/excel/export/${endpoint}` +
+            `?username=${username}`, {
+                method: 'GET'
+            });
 
-    // Create download link
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `applications_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+        if (!response.ok) {
+            let msg = 'Export failed';
+            try {
+                const err = await response.json();
+                msg = err.message || msg;
+            } catch (_) {}
+            showNotification(msg, 'danger');
+            return;
+        }
 
-    // Show success message
-    showNotification('Export completed successfully');
+        const blob     = await response.blob();
+        const url      = URL.createObjectURL(blob);
+        const a        = document.createElement('a');
+        a.href         = url;
+        a.download     =
+            `${fileLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showNotification(
+            `✅ ${fileLabel}.xlsx downloaded successfully`, 'success');
+
+    } catch (error) {
+        console.error(error);
+        showNotification(
+            'Export failed. Check server connection.', 'danger');
+    }
 }
 
-// Logout user
+// ── LOGOUT ────────────────────────────────────────────
 function logoutUser() {
-    // Show loading state
-    confirmLogoutBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Logging out...';
-    confirmLogoutBtn.disabled = true;
+    const btn = document.getElementById('confirmLogout');
+    btn.innerHTML =
+        '<span class="spinner-border spinner-border-sm me-2"></span>' +
+        'Logging out...';
+    btn.disabled = true;
 
-    // Simulate logout process
     setTimeout(() => {
-        // Close modal
-        const modal = bootstrap.Modal.getInstance(logoutModal);
-        modal.hide();
-
-        // Show logout success message
-        showNotification('Successfully logged out. Redirecting to login page...', 'success');
-
-        // Redirect to login page after delay
-        setTimeout(() => {
-            window.location.href = 'index.html';
-        }, 1500);
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        localStorage.removeItem('role');
+        localStorage.removeItem('fullName');
+        window.location.href = 'login.html';
     }, 1000);
 }
 
-// Show user profile
-function showUserProfile() {
-    showNotification('User profile feature coming soon!', 'info');
+// ── SESSION TIME ──────────────────────────────────────
+function updateSessionTime() {
+    const el = document.getElementById('sessionTime');
+    if (!el) return;
+    const mins  = Math.floor((new Date() - sessionStart) / 60000);
+    const hours = Math.floor(mins / 60);
+    if (hours > 0) {
+        el.textContent = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    } else if (mins > 0) {
+        el.textContent = `${mins} minute${mins > 1 ? 's' : ''} ago`;
+    } else {
+        el.textContent = 'Just now';
+    }
 }
 
-// Show notification
+// ── LOADING INDICATOR ─────────────────────────────────
+function showLoading(show) {
+    const tbody = document.getElementById('resultsBody');
+    if (show) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-4">
+                    <span class="spinner-border text-primary me-2"></span>
+                    Loading...
+                </td>
+            </tr>`;
+        document.getElementById('emptyState').style.display = 'none';
+    }
+}
+
+// ── NOTIFICATION TOAST ────────────────────────────────
 function showNotification(message, type = 'success') {
-    // Create notification element
-    const notification = document.createElement('div');
-    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    notification.style.top = '20px';
-    notification.style.right = '20px';
-    notification.style.zIndex = '1050';
-    notification.style.minWidth = '300px';
+    const n = document.createElement('div');
+    n.className =
+        `alert alert-${type} alert-dismissible fade show position-fixed`;
+    n.style.cssText =
+        'top:20px; right:20px; z-index:1050; min-width:300px;';
 
     const icon = type === 'success' ? 'bi-check-circle' :
-        type === 'info' ? 'bi-info-circle' :
-            'bi-exclamation-triangle';
+        type === 'info'    ? 'bi-info-circle'  :
+            type === 'danger'  ? 'bi-x-circle'     :
+                'bi-exclamation-triangle';
 
-    notification.innerHTML = `
-        <i class="bi ${icon} me-2"></i>
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
+    n.innerHTML =
+        `<i class="bi ${icon} me-2"></i>${message}
+         <button type="button" class="btn-close"
+                 data-bs-dismiss="alert"></button>`;
 
-    document.body.appendChild(notification);
-
-    // Auto remove after 3 seconds
-    setTimeout(() => {
-        if (notification.parentNode) {
-            notification.remove();
-        }
-    }, 3000);
+    document.body.appendChild(n);
+    setTimeout(() => { if (n.parentNode) n.remove(); }, 3500);
 }
